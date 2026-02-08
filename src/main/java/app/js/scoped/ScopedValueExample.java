@@ -55,7 +55,7 @@ public class ScopedValueExample {
     private static void handleBusinessLogic() throws Exception {
         logContext("Starting business logic");
 
-        try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+        try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
             
             var authTask = scope.fork(() -> {
                 logContext("Authenticating user");
@@ -76,7 +76,6 @@ public class ScopedValueExample {
             });
             
             scope.join();
-            scope.throwIfFailed();
             
             logContext("Business logic completed: " + 
                       authTask.get() + " | " + 
@@ -101,7 +100,7 @@ public class ScopedValueExample {
     private static void performParallelOperations() throws Exception {
         logContext("Starting parallel operations");
         
-        try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+        try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
             var tasks = new StructuredTaskScope.Subtask[5];
             
             for (int i = 0; i < 5; i++) {
@@ -114,7 +113,6 @@ public class ScopedValueExample {
             }
             
             scope.join();
-            scope.throwIfFailed();
             
             for (var task : tasks) {
                 System.out.println("   " + task.get());

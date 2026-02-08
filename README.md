@@ -12,10 +12,10 @@ This project is a comprehensive learning resource for Java Project Loom, focusin
 
 ## Prerequisites
 
-- **Java 21 (LTS)** or higher (with preview features enabled).
-- **Maven** for building the project.
-- **wrk** (optional, for benchmarking).
-- **nc (netcat)** (optional, for script readiness checks).
+- **Java 25** (with preview features enabled) - REQUIRED
+- **Maven** for building the project
+- **wrk** (optional, for benchmarking)
+- **nc (netcat)** (optional, for script readiness checks)
 
 ## Project Structure
 
@@ -72,17 +72,34 @@ See [scripts/README.md](scripts/README.md) for more details.
 ### Mastering Structured Concurrency
 A focused series exploring `StructuredTaskScope`, covering timeouts, conditional cancellation, resource-aware scheduling, and hierarchical task management.
 
-## 💡 Java 25 Structured Concurrency Example
+## 💡 Java 25 Structured Concurrency
 
-In Java 25, `StructuredTaskScope` uses a `Joiner`-based approach:
+This project uses Java 25's `StructuredTaskScope` with the `Joiner`-based API:
 
+**Wait for all tasks:**
 ```java
-try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.<String>allSuccessfulOrThrow())) {
+try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
     Subtask<String> task1 = scope.fork(() -> "Result A");
     Subtask<String> task2 = scope.fork(() -> "Result B");
 
-    Stream<Subtask<String>> results = scope.join();
-    results.forEach(s -> System.out.println(s.get()));
+    scope.join();  // Throws if any task failed
+    System.out.println(task1.get() + ", " + task2.get());
+}
+```
+
+**First successful result:**
+```java
+try (var scope = StructuredTaskScope.open(
+        StructuredTaskScope.Joiner.<String>allUntil(s -> s.state() == Subtask.State.SUCCESS)
+)) {
+    scope.fork(() -> slowService());
+    scope.fork(() -> fastService());
+
+    String result = scope.join()
+        .filter(s -> s.state() == Subtask.State.SUCCESS)
+        .findFirst()
+        .map(Subtask::get)
+        .orElseThrow();
 }
 ```
 

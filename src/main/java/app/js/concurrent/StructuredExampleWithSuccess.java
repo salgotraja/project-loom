@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.concurrent.StructuredTaskScope;
 import java.util.concurrent.StructuredTaskScope.Subtask;
+import java.util.stream.Stream;
 
 public class StructuredExampleWithSuccess {
     private static final Logger logger = LoggerFactory.getLogger(StructuredExampleWithSuccess.class);
@@ -17,13 +18,12 @@ public class StructuredExampleWithSuccess {
     }
     
     static void runWithShutdownOnFailure() throws Exception {
-        try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+        try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
             Subtask<String> fetch1 = scope.fork(() -> fetchFromService1());
             Subtask<String> fetch2 = scope.fork(() -> fetchFromService2());
             Subtask<String> fetch3 = scope.fork(() -> fetchFromService3());
 
             scope.join();
-            scope.throwIfFailed();
 
             String result = fetch1.get() + fetch2.get() + fetch3.get();
             logger.info("All services completed: {}", result);
@@ -31,14 +31,20 @@ public class StructuredExampleWithSuccess {
     }
     
     static void runWithShutdownOnSuccess() throws Exception {
-        try (var scope = new StructuredTaskScope.ShutdownOnSuccess<String>()) {
+        try (var scope = StructuredTaskScope.open(
+                StructuredTaskScope.Joiner.<String>allUntil(s -> s.state() == Subtask.State.SUCCESS)
+        )) {
             scope.fork(() -> slowService("Service-A", 1000));
             scope.fork(() -> slowService("Service-B", 500));
             scope.fork(() -> slowService("Service-C", 200));
 
-            scope.join();
-            
-            String result = scope.result();
+            Stream<Subtask<String>> results = scope.join();
+
+            String result = results
+                .filter(s -> s.state() == Subtask.State.SUCCESS)
+                .findFirst()
+                .map(Subtask::get)
+                .orElseThrow(() -> new Exception("No successful result"));
             logger.info("First successful result: {}", result);
         }
     }

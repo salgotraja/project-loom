@@ -23,8 +23,10 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.StructuredTaskScope;
+import java.util.concurrent.StructuredTaskScope.Subtask;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Stream;
 
 public class VirtualThreadMicroservice {
     private static final Logger logger = LoggerFactory.getLogger(VirtualThreadMicroservice.class);
@@ -115,12 +117,11 @@ public class VirtualThreadMicroservice {
     private static String aggregateWithStructuredConcurrency() throws Exception {
         long startTime = System.currentTimeMillis();
         
-        try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+        try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
             var blockFuture = scope.fork(() -> fetchBlock());
             var fileFuture = scope.fork(() -> fetchFile());
 
             scope.join();
-            scope.throwIfFailed();
 
             long duration = System.currentTimeMillis() - startTime;
             String result = String.format("StructuredTaskScope Combined: %s | %s (Total: %dms)", 
@@ -160,18 +161,26 @@ public class VirtualThreadMicroservice {
 
     private static String firstSuccessWithStructuredConcurrency() throws Exception {
         long startTime = System.currentTimeMillis();
-        
-        try (var scope = new StructuredTaskScope.ShutdownOnSuccess<String>()) {
+
+        try (var scope = StructuredTaskScope.open(
+                StructuredTaskScope.Joiner.<String>allUntil(s -> s.state() == Subtask.State.SUCCESS)
+        )) {
             scope.fork(() -> slowService("Cache-1", 500));
             scope.fork(() -> slowService("Cache-2", 200));
             scope.fork(() -> slowService("Database", 800));
 
-            scope.join();
-            
+            Stream<Subtask<String>> results = scope.join();
+
             long duration = System.currentTimeMillis() - startTime;
-            String result = String.format("First successful result: %s (Duration: %dms)", 
-                scope.result(), duration);
-            
+            String firstResult = results
+                .filter(s -> s.state() == Subtask.State.SUCCESS)
+                .findFirst()
+                .map(Subtask::get)
+                .orElseThrow(() -> new Exception("No successful result"));
+
+            String result = String.format("First successful result: %s (Duration: %dms)",
+                firstResult, duration);
+
             return result;
         }
     }
@@ -179,12 +188,11 @@ public class VirtualThreadMicroservice {
     private static String aggregateWithFallback() {
         long startTime = System.currentTimeMillis();
         
-        try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+        try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
             var blockFuture = scope.fork(() -> fetchBlock());
             var fileFuture = scope.fork(() -> fetchFileWithPossibleError());
 
             scope.join();
-            scope.throwIfFailed();
 
             long duration = System.currentTimeMillis() - startTime;
             String result = String.format("Aggregate with fallback: %s | %s (Duration: %dms)", 
@@ -202,14 +210,13 @@ public class VirtualThreadMicroservice {
     private static String multiServiceAggregation() throws Exception {
         long startTime = System.currentTimeMillis();
         
-        try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+        try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
             var blockFuture = scope.fork(() -> fetchBlock());
             var fileFuture = scope.fork(() -> fetchFile());
             var computeFuture = scope.fork(() -> fetchCompute());
             var cacheFuture = scope.fork(() -> slowService("Cache", 150));
 
             scope.join();
-            scope.throwIfFailed();
 
             long duration = System.currentTimeMillis() - startTime;
             String result = String.format("Multi-service result: Block[%s] | File[%s] | Compute[%s] | Cache[%s] (Total: %dms)", 

@@ -37,13 +37,12 @@ public class StructuredConcurrencyTester {
         long expectedTime = 300;
 
         long structuredStart = System.nanoTime();
-        try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+        try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
             var t1 = scope.fork(() -> timedTask("Task-1", 100));
             var t2 = scope.fork(() -> timedTask("Task-2", 200));
             var t3 = scope.fork(() -> timedTask("Task-3", 300));
             
             scope.join();
-            scope.throwIfFailed();
 
             logger.info("Results: {}, {}, {}", t1.get(), t2.get(), t3.get());
         }
@@ -82,11 +81,10 @@ public class StructuredConcurrencyTester {
         
         for (int i = 0; i < 100; i++) {
             final int taskId = i;
-            try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+            try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
                 var t1 = scope.fork(() -> timedTask("Task-" + taskId, 1));
                 var t2 = scope.fork(() -> timedTask("Task-" + taskId, 1));
                 scope.join();
-                scope.throwIfFailed();
                 t1.get();
                 t2.get();
             }
@@ -129,7 +127,7 @@ public class StructuredConcurrencyTester {
         AtomicInteger structuredThreadCount = new AtomicInteger(0);
         AtomicInteger cfThreadCount = new AtomicInteger(0);
 
-        try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+        try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
             for (int i = 0; i < 10; i++) {
                 scope.fork(() -> {
                     String threadName = Thread.currentThread().getName();
@@ -139,7 +137,6 @@ public class StructuredConcurrencyTester {
                 });
             }
             scope.join();
-            scope.throwIfFailed();
         }
 
         CompletableFuture<?>[] futures = new CompletableFuture[10];
@@ -166,13 +163,12 @@ public class StructuredConcurrencyTester {
         long structuredStart = System.nanoTime();
         boolean structuredCaughtError = false;
         
-        try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+        try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
             scope.fork(() -> timedTask("Good-Task-1", 100));
             scope.fork(() -> failingTask("Bad-Task", 50));
             scope.fork(() -> timedTask("Good-Task-2", 200));
             
             scope.join();
-            scope.throwIfFailed();
         } catch (Exception e) {
             structuredCaughtError = true;
             long structuredErrorTime = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - structuredStart);
@@ -244,13 +240,12 @@ public class StructuredConcurrencyTester {
         AtomicInteger cfCancelled = new AtomicInteger(0);
 
         logger.info("Testing StructuredTaskScope cancellation...");
-        try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+        try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
             scope.fork(() -> cancellableTask("Task-1", 1000, structuredCancelled));
             scope.fork(() -> cancellableTask("Task-2", 2000, structuredCancelled));
             scope.fork(() -> failingTask("Failing-Task", 100));
             
             scope.join();
-            scope.throwIfFailed();
         } catch (Exception e) {
             logger.info("StructuredTaskScope cancelled " + structuredCancelled.get() + " tasks");
         }
@@ -305,11 +300,10 @@ public class StructuredConcurrencyTester {
     private static long runStructuredTaskScopeTest() {
         try {
             long start = System.nanoTime();
-            try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+            try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
                 var t1 = scope.fork(() -> timedTask("A", 1));
                 var t2 = scope.fork(() -> timedTask("B", 1));
                 scope.join();
-                scope.throwIfFailed();
                 t1.get();
                 t2.get();
             }

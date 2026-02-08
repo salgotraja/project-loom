@@ -53,7 +53,7 @@ public class VirtualThreadReactiveIntegration {
             }
         });
 
-        try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+        try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
             for (int i = 0; i < 10; i++) {
                 final int itemId = i;
                 scope.fork(() -> {
@@ -64,7 +64,6 @@ public class VirtualThreadReactiveIntegration {
             }
             
             scope.join();
-            scope.throwIfFailed();
         }
         
         Thread.sleep(500);
@@ -186,7 +185,7 @@ public class VirtualThreadReactiveIntegration {
         startTime = System.currentTimeMillis();
         List<String> structuredResults = new ArrayList<>();
         
-        try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+        try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
             List<StructuredTaskScope.Subtask<String>> subtasks = new ArrayList<>();
             
             for (int i = 0; i < ITEM_COUNT; i++) {
@@ -198,7 +197,6 @@ public class VirtualThreadReactiveIntegration {
             }
             
             scope.join();
-            scope.throwIfFailed();
             
             for (var subtask : subtasks) {
                 structuredResults.add(subtask.get());
@@ -264,7 +262,7 @@ public class VirtualThreadReactiveIntegration {
         public <R> List<R> processReactiveStream(Stream<T> stream, Function<T, R> processor) throws Exception {
             List<R> results = new ArrayList<>();
             
-            try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+            try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
                 List<StructuredTaskScope.Subtask<R>> subtasks = new ArrayList<>();
                 
                 stream.forEach(item -> {
@@ -272,7 +270,6 @@ public class VirtualThreadReactiveIntegration {
                 });
                 
                 scope.join();
-                scope.throwIfFailed();
                 
                 for (var subtask : subtasks) {
                     results.add(subtask.get());
@@ -337,7 +334,7 @@ public class VirtualThreadReactiveIntegration {
             List<R> successfulResults = new ArrayList<>();
             List<String> errors = new ArrayList<>();
             
-            try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+            try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
                 List<StructuredTaskScope.Subtask<ProcessingResult<R>>> subtasks = new ArrayList<>();
                 
                 stream.forEach(item -> {
@@ -352,7 +349,6 @@ public class VirtualThreadReactiveIntegration {
                 });
                 
                 scope.join();
-                scope.throwIfFailed();
                 
                 for (var subtask : subtasks) {
                     ProcessingResult<R> result = subtask.get();

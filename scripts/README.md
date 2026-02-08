@@ -39,7 +39,7 @@ The microservices are configured to run on the following ports to avoid conflict
 
 ## Prerequisites
 
-- **Java 21+**: Required for Project Loom features.
+- **Java 25**: Required for Project Loom features (with preview enabled).
 - **Maven**: To build the project.
 - **`wrk`**: Required for load benchmarking.
 - **`nc` (netcat)**: Used by `run_all_benchmarks.sh` for readiness checks.
