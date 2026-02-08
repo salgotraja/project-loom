@@ -71,7 +71,7 @@ public class HierarchicalProgressiveHandler {
         List<T> results = new ArrayList<>();
         List<Exception> errors = new ArrayList<>();
 
-        try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+        try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
             List<StructuredTaskScope.Subtask<T>> subtasks = new ArrayList<>();
 
             for (int i = 0; i < request.getTasks().size(); i++) {
@@ -102,11 +102,11 @@ public class HierarchicalProgressiveHandler {
             int totalCompleted = 0;
 
             while (totalCompleted < subtasks.size() && Instant.now().isBefore(deadline)) {
+                // Java 25: joinUntil removed - use sleep for polling
                 try {
-
-                    scope.joinUntil(Instant.now().plusMillis(50));
-                } catch (TimeoutException e) {
-
+                    Thread.sleep(50);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
                 }
 
                 for (int i = 0; i < subtasks.size(); i++) {
@@ -148,7 +148,9 @@ public class HierarchicalProgressiveHandler {
             boolean timedOut = Instant.now().isAfter(deadline);
             if (timedOut) {
                 logger.warn("Progressive execution timed out: {} after {}ms", executionId, timeout.toMillis());
-                scope.shutdown();
+// Java 25: Manual shutdown removed - automatic on scope close
+                // Java 25: shutdown() removed - automatic on scope close
+                // //                 scope.shutdown();
 
                 for (int i = 0; i < subtasks.size(); i++) {
                     if (!completed[i]) {
@@ -204,7 +206,7 @@ public class HierarchicalProgressiveHandler {
         Map<String, Object> levelResults = new ConcurrentHashMap<>();
         List<String> completedLevels = new ArrayList<>();
 
-        try (var parentScope = new StructuredTaskScope.ShutdownOnFailure()) {
+        try (var parentScope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
 
             List<StructuredTaskScope.Subtask<Map<String, Object>>> levelTasks = new ArrayList<>();
 
@@ -238,7 +240,6 @@ public class HierarchicalProgressiveHandler {
             }
 
             parentScope.join();
-            parentScope.throwIfFailed();
 
             for (var levelTask : levelTasks) {
                 Map<String, Object> levelResult = levelTask.get();

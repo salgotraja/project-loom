@@ -5,7 +5,9 @@ import org.slf4j.LoggerFactory;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.StructuredTaskScope;
+import java.util.concurrent.StructuredTaskScope.Subtask;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
 
 public class StructuredConcurrencyComparison {
     private static final Logger logger = LoggerFactory.getLogger(StructuredConcurrencyComparison.class);
@@ -31,13 +33,12 @@ public class StructuredConcurrencyComparison {
         logger.info("\n--- StructuredTaskScope ---");
         long start = System.currentTimeMillis();
 
-        try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+        try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
             var task1 = scope.fork(() -> simulateService("Service-A", 200));
             var task2 = scope.fork(() -> simulateService("Service-B", 300));
             var task3 = scope.fork(() -> simulateService("Service-C", 100));
-            
+
             scope.join();
-            scope.throwIfFailed();
             
             String result = String.format("Results: %s, %s, %s", 
                 task1.get(), task2.get(), task3.get());
@@ -67,16 +68,15 @@ public class StructuredConcurrencyComparison {
     private static void testErrorHandling() {
         logger.info("\n--- StructuredTaskScope Error Handling ---");
 
-        try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+        try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
             var task1 = scope.fork(() -> simulateService("Service-A", 200));
             var task2 = scope.fork(() -> simulateFailingService("Service-B", 300));
             var task3 = scope.fork(() -> simulateService("Service-C", 100));
-            
+
             scope.join();
-            scope.throwIfFailed();
-            
+
             logger.info("This won't be reached due to failure");
-            
+
         } catch (Exception e) {
             logger.error("Caught exception with message: {}", e.getMessage());
             logger.error("All tasks were automatically cancelled");
@@ -102,14 +102,20 @@ public class StructuredConcurrencyComparison {
         logger.info("\n--- StructuredTaskScope ShutdownOnSuccess ---");
         long start = System.currentTimeMillis();
 
-        try (var scope = new StructuredTaskScope.ShutdownOnSuccess<String>()) {
+        try (var scope = StructuredTaskScope.open(
+                StructuredTaskScope.Joiner.<String>allUntil(s -> s.state() == Subtask.State.SUCCESS)
+        )) {
             scope.fork(() -> simulateService("Slow-Service", 1000));
             scope.fork(() -> simulateService("Fast-Service", 200));
             scope.fork(() -> simulateService("Medium-Service", 500));
-            
-            scope.join();
-            
-            String result = scope.result();
+
+            Stream<Subtask<String>> results = scope.join();
+
+            String result = results
+                .filter(s -> s.state() == Subtask.State.SUCCESS)
+                .findFirst()
+                .map(Subtask::get)
+                .orElseThrow(() -> new Exception("No successful result"));
             long duration = System.currentTimeMillis() - start;
             logger.info("First result: {} (took {}ms)", result, duration);
         }
@@ -158,13 +164,12 @@ public class StructuredConcurrencyComparison {
     }
     
     private static void runStructuredTaskScope() throws Exception {
-        try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+        try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
             var task1 = scope.fork(() -> simulateService("A", 1));
             var task2 = scope.fork(() -> simulateService("B", 1));
-            
+
             scope.join();
-            scope.throwIfFailed();
-            
+
             task1.get();
             task2.get();
         }

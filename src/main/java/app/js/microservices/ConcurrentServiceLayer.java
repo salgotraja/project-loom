@@ -16,8 +16,10 @@ import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.StructuredTaskScope;
+import java.util.concurrent.StructuredTaskScope.Subtask;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Stream;
 
 public class ConcurrentServiceLayer {
     private static final Logger logger = LoggerFactory.getLogger(ConcurrentServiceLayer.class);
@@ -28,13 +30,12 @@ public class ConcurrentServiceLayer {
     public String structuredDbCall() throws Exception {
         logger.info("Starting structured DB call");
         
-        try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+        try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
             var userQuery = scope.fork(() -> simulateDbQuery("users", 150));
             var orderQuery = scope.fork(() -> simulateDbQuery("orders", 120));
             var productQuery = scope.fork(() -> simulateDbQuery("products", 180));
             
             scope.join();
-            scope.throwIfFailed();
             
             String result = String.format("DB Results: %s, %s, %s", 
                 userQuery.get(), orderQuery.get(), productQuery.get());
@@ -47,13 +48,12 @@ public class ConcurrentServiceLayer {
     public String structuredFileOperation() throws Exception {
         logger.info("Starting structured file operation");
         
-        try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+        try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
             var readFile = scope.fork(() -> readTestFile());
             var writeFile = scope.fork(() -> writeLogFile());
             var validateFile = scope.fork(() -> validateFileIntegrity());
             
             scope.join();
-            scope.throwIfFailed();
             
             String result = String.format("File Operations: %s, %s, %s", 
                 readFile.get(), writeFile.get(), validateFile.get());
@@ -66,14 +66,13 @@ public class ConcurrentServiceLayer {
     public String structuredAggregateServices() throws Exception {
         logger.info("Starting structured service aggregation");
         
-        try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+        try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
             var authService = scope.fork(() -> simulateServiceCall("auth-service", 100));
             var userService = scope.fork(() -> simulateServiceCall("user-service", 150));
             var notificationService = scope.fork(() -> simulateServiceCall("notification-service", 80));
             var analyticsService = scope.fork(() -> simulateServiceCall("analytics-service", 200));
             
             scope.join();
-            scope.throwIfFailed();
             
             String result = String.format("Service Aggregation: %s, %s, %s, %s", 
                 authService.get(), userService.get(), notificationService.get(), analyticsService.get());
@@ -88,7 +87,7 @@ public class ConcurrentServiceLayer {
         
         Instant deadline = Instant.now().plusMillis(300);
         
-        try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+        try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
             var slowTask = scope.fork(() -> simulateSlowService("slow-service", 500));
             var fastTask = scope.fork(() -> simulateSlowService("fast-service", 100));
             
@@ -98,7 +97,6 @@ public class ConcurrentServiceLayer {
                 throw new TimeoutException("Request exceeded 300ms deadline");
             }
             
-            scope.throwIfFailed();
             
             String result = String.format("Timeout Results: %s, %s", 
                 slowTask.get(), fastTask.get());
@@ -110,16 +108,24 @@ public class ConcurrentServiceLayer {
     
     public String gracefulTimeoutExample() throws Exception {
         logger.info("Starting graceful timeout example");
-        
-        try (var scope = new StructuredTaskScope.ShutdownOnSuccess<String>()) {
+
+        try (var scope = StructuredTaskScope.open(
+                StructuredTaskScope.Joiner.<String>allUntil(s -> s.state() == Subtask.State.SUCCESS)
+        )) {
             var primaryService = scope.fork(() -> simulateServiceCall("primary-service", 400));
             var fallbackService = scope.fork(() -> simulateServiceCall("fallback-service", 200));
             var cacheService = scope.fork(() -> simulateServiceCall("cache-service", 50));
             logger.info("primaryService: {}, fallbackService: {}, cacheService: {}", primaryService, fallbackService, cacheService);
             logger.info("Graceful timeout example starting");
-            scope.join();
-            
-            String result = "Graceful Timeout Result: " + scope.result();
+            Stream<Subtask<String>> results = scope.join();
+
+            String firstResult = results
+                .filter(s -> s.state() == Subtask.State.SUCCESS)
+                .findFirst()
+                .map(Subtask::get)
+                .orElseThrow(() -> new Exception("No successful result"));
+
+            String result = "Graceful Timeout Result: " + firstResult;
             logger.info("Graceful timeout example completed with first success");
             return result;
         }
@@ -130,13 +136,12 @@ public class ConcurrentServiceLayer {
         
         Instant deadline = Instant.now().plusMillis(800);
         
-        try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+        try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
             var task1 = scope.fork(() -> simulateTimedTask("task-1", 200, deadline));
             var task2 = scope.fork(() -> simulateTimedTask("task-2", 300, deadline));
             var task3 = scope.fork(() -> simulateTimedTask("task-3", 400, deadline));
             
             scope.join();
-            scope.throwIfFailed();
             
             String result = String.format("Deadline Results: %s, %s, %s", 
                 task1.get(), task2.get(), task3.get());
@@ -149,14 +154,13 @@ public class ConcurrentServiceLayer {
     public String asyncMultiServiceCall() throws Exception {
         logger.info("Starting async multi-service call");
         
-        try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+        try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
 
             var apiService1 = scope.fork(() -> asyncHttpCall("https://httpbin.org/delay/1", "api-1"));
             var apiService2 = scope.fork(() -> asyncHttpCall("https://httpbin.org/delay/2", "api-2"));
             var apiService3 = scope.fork(() -> asyncHttpCall("https://httpbin.org/json", "api-3"));
             
             scope.join();
-            scope.throwIfFailed();
             
             String result = String.format("Async HTTP Results: %s, %s, %s", 
                 apiService1.get(), apiService2.get(), apiService3.get());
@@ -168,16 +172,24 @@ public class ConcurrentServiceLayer {
     
     public String asyncFailoverCall() throws Exception {
         logger.info("Starting async failover call");
-        
-        try (var scope = new StructuredTaskScope.ShutdownOnSuccess<String>()) {
+
+        try (var scope = StructuredTaskScope.open(
+                StructuredTaskScope.Joiner.<String>allUntil(s -> s.state() == Subtask.State.SUCCESS)
+        )) {
             var primaryApi = scope.fork(() -> asyncHttpCall("https://httpbin.org/status/500", "primary"));
             var secondaryApi = scope.fork(() -> asyncHttpCall("https://httpbin.org/json", "secondary"));
             var tertiaryApi = scope.fork(() -> asyncHttpCall("https://httpbin.org/uuid", "tertiary"));
             logger.info("primaryApi: {}, secondaryApi: {}, tertiaryApi: {}", primaryApi, secondaryApi, tertiaryApi);
 
-            scope.join();
-            
-            String result = "Failover Result: " + scope.result();
+            Stream<Subtask<String>> results = scope.join();
+
+            String firstResult = results
+                .filter(s -> s.state() == Subtask.State.SUCCESS)
+                .findFirst()
+                .map(Subtask::get)
+                .orElseThrow(() -> new Exception("No successful result"));
+
+            String result = "Failover Result: " + firstResult;
             logger.info("Async failover call completed with successful fallback");
             return result;
         }
@@ -185,15 +197,23 @@ public class ConcurrentServiceLayer {
     
     public String asyncRaceCondition() throws Exception {
         logger.info("Starting async race condition handling");
-        
-        try (var scope = new StructuredTaskScope.ShutdownOnSuccess<String>()) {
+
+        try (var scope = StructuredTaskScope.open(
+                StructuredTaskScope.Joiner.<String>allUntil(s -> s.state() == Subtask.State.SUCCESS)
+        )) {
             var cacheHit = scope.fork(() -> simulateServiceCall("cache-hit", 50));
             var dbQuery = scope.fork(() -> simulateServiceCall("db-query", 300));
             var apiCall = scope.fork(() -> simulateServiceCall("api-call", 200));
             logger.info("cacheHit: {}, dbQuery: {}, apiCall: {}", cacheHit, dbQuery, apiCall);
-            scope.join();
-            
-            String result = "Race Winner: " + scope.result();
+            Stream<Subtask<String>> results = scope.join();
+
+            String firstResult = results
+                .filter(s -> s.state() == Subtask.State.SUCCESS)
+                .findFirst()
+                .map(Subtask::get)
+                .orElseThrow(() -> new Exception("No successful result"));
+
+            String result = "Race Winner: " + firstResult;
             logger.info("Async race condition handled successfully");
             return result;
         }
@@ -202,14 +222,13 @@ public class ConcurrentServiceLayer {
     public String servicePipeline() throws Exception {
         logger.info("Starting service pipeline");
         
-        try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+        try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
             var stage1 = scope.fork(() -> simulateServiceCall("validation-stage", 100));
             var stage2 = scope.fork(() -> simulateServiceCall("processing-stage", 150));
             var stage3 = scope.fork(() -> simulateServiceCall("enrichment-stage", 120));
             var stage4 = scope.fork(() -> simulateServiceCall("output-stage", 80));
             
             scope.join();
-            scope.throwIfFailed();
             
             String result = String.format("Pipeline Results: %s -> %s -> %s -> %s", 
                 stage1.get(), stage2.get(), stage3.get(), stage4.get());
@@ -227,7 +246,7 @@ public class ConcurrentServiceLayer {
             return "Circuit breaker is OPEN - service unavailable";
         }
         
-        try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+        try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
             var primaryService = scope.fork(() -> {
                 if (Math.random() < 0.3) {
                     circuitBreakerFailures.incrementAndGet();
@@ -238,7 +257,6 @@ public class ConcurrentServiceLayer {
             });
             
             scope.join();
-            scope.throwIfFailed();
             
             String result = "Circuit Breaker Result: " + primaryService.get();
             logger.info("Circuit breaker example completed successfully");
@@ -249,11 +267,10 @@ public class ConcurrentServiceLayer {
     public String retryPatternExample() throws Exception {
         logger.info("Starting retry pattern example");
         
-        try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+        try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
             var retryableTask = scope.fork(() -> simulateRetryableService());
             
             scope.join();
-            scope.throwIfFailed();
             
             String result = "Retry Pattern Result: " + retryableTask.get();
             logger.info("Retry pattern example completed successfully");
@@ -264,7 +281,7 @@ public class ConcurrentServiceLayer {
     public String scatterGatherPattern() throws Exception {
         logger.info("Starting scatter-gather pattern");
         
-        try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+        try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
             var service1 = scope.fork(() -> simulateServiceCall("service-1", 100));
             var service2 = scope.fork(() -> simulateServiceCall("service-2", 150));
             var service3 = scope.fork(() -> simulateServiceCall("service-3", 120));
@@ -272,7 +289,6 @@ public class ConcurrentServiceLayer {
             var service5 = scope.fork(() -> simulateServiceCall("service-5", 90));
             
             scope.join();
-            scope.throwIfFailed();
 
             String result = String.format("Scatter-Gather Results: [%s, %s, %s, %s, %s]", 
                 service1.get(), service2.get(), service3.get(), service4.get(), service5.get());
@@ -285,8 +301,8 @@ public class ConcurrentServiceLayer {
     public String bulkheadPattern() throws Exception {
         logger.info("Starting bulkhead pattern");
         
-        try (var criticalScope = new StructuredTaskScope.ShutdownOnFailure();
-             var nonCriticalScope = new StructuredTaskScope.ShutdownOnFailure()) {
+        try (var criticalScope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow());
+             var nonCriticalScope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
 
             var criticalService1 = criticalScope.fork(() -> simulateServiceCall("critical-auth", 100));
             var criticalService2 = criticalScope.fork(() -> simulateServiceCall("critical-payment", 150));
@@ -295,11 +311,9 @@ public class ConcurrentServiceLayer {
             var nonCriticalService2 = nonCriticalScope.fork(() -> simulateServiceCall("logging", 50));
             logger.info("criticalService1: {}, criticalService2: {}, nonCriticalService1: {}, nonCriticalService2: {}", criticalService1, criticalService2, nonCriticalService1, nonCriticalService2);
             criticalScope.join();
-            criticalScope.throwIfFailed();
             logger.info("Critical services completed successfully");
             try {
                 nonCriticalScope.join();
-                nonCriticalScope.throwIfFailed();
             } catch (Exception e) {
                 logger.warn("Non-critical services failed: {}", e.getMessage());
             }

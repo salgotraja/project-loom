@@ -74,7 +74,7 @@ public class VirtualThreadObservability {
 
     private static void testStructuredConcurrencyMetrics(VirtualThreadMonitor monitor) throws Exception {
 
-        try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+        try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
 
             for (int i = 0; i < 20; i++) {
                 final int taskId = i;
@@ -85,7 +85,6 @@ public class VirtualThreadObservability {
             }
 
             scope.join();
-            scope.throwIfFailed();
         }
 
         logger.info("   Structured concurrency metrics test completed");

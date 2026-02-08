@@ -334,7 +334,7 @@ public class AdvancedStructuredPatterns {
         List<T> allResults = new ArrayList<>();
         List<Integer> cancelledTasks = new ArrayList<>();
         
-        try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+        try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
             List<StructuredTaskScope.Subtask<T>> subtasks = new ArrayList<>();
 
             for (Callable<T> task : tasks) {
@@ -344,10 +344,12 @@ public class AdvancedStructuredPatterns {
             Instant maxTime = Instant.now().plus(maxDuration);
             
             while (Instant.now().isBefore(maxTime)) {
+                // Java 25: joinUntil removed - use sleep for polling
                 try {
-                    scope.joinUntil(Instant.now().plus(checkInterval));
-                } catch (TimeoutException e) {
-                    logger.error("Timeout occurred while waiting for tasks to complete");
+                    Thread.sleep(checkInterval.toMillis());
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    logger.error("Interrupted while waiting for tasks to complete");
                 }
 
                 List<T> newResults = new ArrayList<>();
@@ -379,7 +381,8 @@ public class AdvancedStructuredPatterns {
                 allResults.addAll(newResults);
 
                 if (cancelCondition.apply(allResults)) {
-                    scope.shutdown();
+                    // Java 25: shutdown() removed - automatic on scope close
+                    // scope.shutdown();
                     logger.error("Cancellation condition met");
                     for (int i = 0; i < subtasks.size(); i++) {
                         if (!completedIndices.contains(i)) {
@@ -404,7 +407,8 @@ public class AdvancedStructuredPatterns {
             }
 
             if (Instant.now().isAfter(maxTime)) {
-                scope.shutdown();
+                // Java 25: shutdown() removed - automatic on scope close
+                // scope.shutdown();
                 logger.error("Maximum duration exceeded");
                 for (int i = 0; i < subtasks.size(); i++) {
                     var subtask = subtasks.get(i);
@@ -458,7 +462,7 @@ public class AdvancedStructuredPatterns {
         boolean[] completed = new boolean[tasks.size()];
         int totalCompleted = 0;
         
-        try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+        try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
             List<StructuredTaskScope.Subtask<T>> subtasks = new ArrayList<>();
 
             for (Callable<T> task : tasks) {
@@ -468,10 +472,12 @@ public class AdvancedStructuredPatterns {
             Instant maxTime = Instant.now().plus(maxDuration);
             
             while (totalCompleted < tasks.size() && Instant.now().isBefore(maxTime)) {
+                // Java 25: joinUntil removed - use sleep for polling
                 try {
-                    scope.joinUntil(Instant.now().plusMillis(50));
-                } catch (TimeoutException e) {
-                    logger.error("Timeout occurred while waiting for tasks to complete", e);
+                    Thread.sleep(50);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    logger.error("Interrupted while waiting for tasks to complete", e);
                 }
 
                 for (int i = 0; i < subtasks.size(); i++) {
@@ -512,7 +518,8 @@ public class AdvancedStructuredPatterns {
             if (Instant.now().isAfter(maxTime)) {
                 System.out.printf("   Progressive execution timed out after %d ms%n", 
                     maxDuration.toMillis());
-                scope.shutdown();
+                // Java 25: shutdown() removed - automatic on scope close
+                // scope.shutdown();
             }
             
             return new ProgressiveSummary<>(
@@ -567,14 +574,13 @@ public class AdvancedStructuredPatterns {
     private static class HierarchicalTaskManager {
         
         public String executeHierarchical() throws Exception {
-            try (var parentScope = new StructuredTaskScope.ShutdownOnFailure()) {
+            try (var parentScope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
                 
                 var childTask1 = parentScope.fork(() -> executeChildTasks("Group-1"));
                 var childTask2 = parentScope.fork(() -> executeChildTasks("Group-2"));
                 var childTask3 = parentScope.fork(() -> executeChildTasks("Group-3"));
                 
                 parentScope.join();
-                parentScope.throwIfFailed();
                 
                 return String.format("Parent completed: [%s, %s, %s]", 
                                    childTask1.get(), childTask2.get(), childTask3.get());
@@ -582,7 +588,7 @@ public class AdvancedStructuredPatterns {
         }
         
         private String executeChildTasks(String group) throws Exception {
-            try (var childScope = new StructuredTaskScope.ShutdownOnFailure()) {
+            try (var childScope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
                 
                 var task1 = childScope.fork(() -> {
                     Thread.sleep(50);
@@ -595,7 +601,6 @@ public class AdvancedStructuredPatterns {
                 });
                 
                 childScope.join();
-                childScope.throwIfFailed();
                 
                 return String.format("%s: [%s, %s]", group, task1.get(), task2.get());
             }
@@ -627,14 +632,13 @@ public class AdvancedStructuredPatterns {
             var memoryTasks = tasks.stream().filter(t -> t.getType() == ResourceType.MEMORY).toList();
             var ioTasks = tasks.stream().filter(t -> t.getType() == ResourceType.IO).toList();
             
-            try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+            try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
                 
                 var cpuResult = scope.fork(() -> executeResourceGroup(cpuTasks));
                 var memoryResult = scope.fork(() -> executeResourceGroup(memoryTasks));
                 var ioResult = scope.fork(() -> executeResourceGroup(ioTasks));
                 
                 scope.join();
-                scope.throwIfFailed();
                 
                 List<String> allResults = new ArrayList<>();
                 allResults.addAll(cpuResult.get());
@@ -648,7 +652,7 @@ public class AdvancedStructuredPatterns {
         private List<String> executeResourceGroup(List<ResourceTask> tasks) throws Exception {
             List<String> results = new ArrayList<>();
             
-            try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+            try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
                 List<StructuredTaskScope.Subtask<String>> subtasks = new ArrayList<>();
                 
                 for (ResourceTask task : tasks) {
@@ -659,7 +663,6 @@ public class AdvancedStructuredPatterns {
                 }
                 
                 scope.join();
-                scope.throwIfFailed();
                 
                 for (var subtask : subtasks) {
                     results.add(subtask.get());
@@ -702,7 +705,7 @@ public class AdvancedStructuredPatterns {
         private List<T> executeBatch(List<Callable<T>> batch) throws Exception {
             List<T> results = new ArrayList<>();
             
-            try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+            try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
                 List<StructuredTaskScope.Subtask<T>> subtasks = new ArrayList<>();
                 
                 for (Callable<T> task : batch) {
@@ -710,7 +713,6 @@ public class AdvancedStructuredPatterns {
                 }
                 
                 scope.join();
-                scope.throwIfFailed();
                 
                 for (var subtask : subtasks) {
                     results.add(subtask.get());
@@ -741,13 +743,12 @@ public class AdvancedStructuredPatterns {
         public BulkheadResult executeWithBulkhead(List<Callable<String>> criticalTasks, 
                                                  List<Callable<String>> normalTasks) throws Exception {
             
-            try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+            try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
 
                 var criticalBulkhead = scope.fork(() -> executeBulkhead(criticalTasks, "Critical"));
                 var normalBulkhead = scope.fork(() -> executeBulkhead(normalTasks, "Normal"));
                 
                 scope.join();
-                scope.throwIfFailed();
                 
                 return new BulkheadResult(criticalBulkhead.get(), normalBulkhead.get());
             }
@@ -756,7 +757,7 @@ public class AdvancedStructuredPatterns {
         private List<String> executeBulkhead(List<Callable<String>> tasks, String bulkheadName) throws Exception {
             List<String> results = new ArrayList<>();
             
-            try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+            try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
                 List<StructuredTaskScope.Subtask<String>> subtasks = new ArrayList<>();
                 
                 for (Callable<String> task : tasks) {
@@ -764,7 +765,6 @@ public class AdvancedStructuredPatterns {
                 }
                 
                 scope.join();
-                scope.throwIfFailed();
                 
                 for (var subtask : subtasks) {
                     results.add(subtask.get());

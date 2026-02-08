@@ -9,13 +9,12 @@ import java.util.concurrent.StructuredTaskScope.Subtask;
 public class StructuredExample {
     private static final Logger logger = LoggerFactory.getLogger(StructuredExample.class);
     static void main(String[] args) throws Exception {
-        try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+        try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
             Subtask<String> fetch1 = scope.fork(() -> fetchFromService1());
             Subtask<String> fetch2 = scope.fork(() -> fetchFromService2());
             Subtask<String> fetch3 = scope.fork(() -> fetchFromService3());
 
             scope.join();
-            scope.throwIfFailed();
 
             String result = fetch1.get() + fetch2.get() + fetch3.get();
             logger.info("Combined result: {}", result);

@@ -493,7 +493,7 @@ public class ProgressiveResultsBenchmark {
                                                 ProgressCallback<T> callback)
                 throws InterruptedException {
 
-            try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+            try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
                 List<StructuredTaskScope.Subtask<T>> subtasks = new ArrayList<>();
 
                 for (Callable<T> task : tasks) {
@@ -505,13 +505,14 @@ public class ProgressiveResultsBenchmark {
                 long startTime = System.currentTimeMillis();
                 long timeout = 10000;
 
-                while (totalCompleted < tasks.size() && 
+                while (totalCompleted < tasks.size() &&
                        (System.currentTimeMillis() - startTime) < timeout) {
-                    
-                    try {
-                        scope.joinUntil(Instant.now().plusMillis(10));
-                    } catch (TimeoutException e) {
 
+                    // Java 25: joinUntil removed - use sleep for polling
+                    try {
+                        Thread.sleep(10);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
                     }
 
                     for (int i = 0; i < subtasks.size(); i++) {
@@ -548,7 +549,7 @@ public class ProgressiveResultsBenchmark {
     private static class HierarchicalTaskManager {
 
         public String executeEcommerceWorkflow(String userId) throws Exception {
-            try (var parentScope = new StructuredTaskScope.ShutdownOnFailure()) {
+            try (var parentScope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
 
                 var userDataTask = parentScope.fork(() -> gatherUserData(userId));
 
@@ -564,7 +565,7 @@ public class ProgressiveResultsBenchmark {
         }
 
         private String gatherUserData(String userId) throws Exception {
-            try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+            try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
                 var profileTask = scope.fork(() -> fetchUserProfile(userId));
                 var preferencesTask = scope.fork(() -> fetchUserPreferences(userId));
 
@@ -575,7 +576,7 @@ public class ProgressiveResultsBenchmark {
         }
 
         private String processBusinessLogic(String userId) throws Exception {
-            try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+            try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
                 var inventoryTask = scope.fork(() -> checkInventory(userId, ""));
                 var paymentTask = scope.fork(() -> processPayment(userId, ""));
                 var shippingTask = scope.fork(() -> calculateShipping(userId, "", ""));
@@ -603,7 +604,7 @@ public class ProgressiveResultsBenchmark {
         public String executeWithProgressAndHierarchy(String userId, Consumer<String> progressCallback) throws Exception {
             progressCallback.accept("Starting hierarchical workflow");
 
-            try (var parentScope = new StructuredTaskScope.ShutdownOnFailure()) {
+            try (var parentScope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
 
                 var level1Task = parentScope.fork(() -> {
                     progressCallback.accept("Level 1 starting");
