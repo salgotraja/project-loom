@@ -87,15 +87,16 @@ public class ScopedRequestHandler {
     public <T> T runWithFallback(Callable<T> primary, Callable<T> fallback) throws Exception {
         try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
             var primaryFuture = scope.fork(primary);
-            
+
             scope.join();
-            
-            try {
-                return primaryFuture.get();
-            } catch (Exception e) {
-                logger.warn("Primary task failed, using fallback: {}", e.getMessage());
-                return fallback.call();
-            }
+
+            return primaryFuture.get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw e;
+        } catch (Exception primaryFailure) {
+            logger.warn("Primary task failed, using fallback: {}", primaryFailure.getMessage());
+            return fallback.call();
         }
     }
 

@@ -68,10 +68,10 @@ public class HierarchicalProgressiveHandler {
         progressTracker.startExecution(executionId, request.getTasks().size());
         logger.info("Starting progressive execution: {} with {} tasks", executionId, request.getTasks().size());
 
-        List<T> results = new ArrayList<>();
-        List<Exception> errors = new ArrayList<>();
+        Map<Integer, T> resultsByIndex = new ConcurrentHashMap<>();
+        Map<Integer, Exception> errorsByIndex = new ConcurrentHashMap<>();
 
-        try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
+        try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.<T>awaitAll())) {
             List<StructuredTaskScope.Subtask<T>> subtasks = new ArrayList<>();
 
             for (int i = 0; i < request.getTasks().size(); i++) {
@@ -82,12 +82,14 @@ public class HierarchicalProgressiveHandler {
                     try {
                         logger.debug("Starting task {}", taskIndex);
                         T result = task.call();
+                        resultsByIndex.put(taskIndex, result);
                         progressTracker.updateProgress(executionId, taskIndex, "completed");
                         request.getProgressCallback().accept(new ProgressUpdate<>(taskIndex, result, null));
                         logger.debug("Task {} completed successfully", taskIndex);
                         return result;
                     } catch (Exception e) {
                         logger.debug("Task {} failed: {}", taskIndex, e.getMessage());
+                        errorsByIndex.put(taskIndex, e);
                         progressTracker.updateProgress(executionId, taskIndex, "failed: " + e.getMessage());
                         request.getProgressCallback().accept(new ProgressUpdate<>(taskIndex, null, e));
                         throw e;
@@ -116,23 +118,14 @@ public class HierarchicalProgressiveHandler {
 
                         switch (state) {
                             case SUCCESS:
-                                try {
-                                    T result = subtask.get();
-                                    results.add(result);
-                                    completed[i] = true;
-                                    totalCompleted++;
-                                    logger.debug("Collected result from task {}", i);
-                                } catch (Exception e) {
-                                    logger.warn("Failed to get result from successful task {}: {}", i, e.getMessage());
-                                    errors.add(new RuntimeException("Task " + i + " failed to get result", e));
-                                    completed[i] = true;
-                                    totalCompleted++;
-                                }
+                                completed[i] = true;
+                                totalCompleted++;
+                                logger.debug("Observed completed task {}", i);
                                 break;
 
                             case FAILED:
                                 logger.debug("Task {} failed", i);
-                                errors.add(new RuntimeException("Task " + i + " failed"));
+                                errorsByIndex.putIfAbsent(i, new RuntimeException("Task " + i + " failed"));
                                 completed[i] = true;
                                 totalCompleted++;
                                 break;
@@ -148,27 +141,31 @@ public class HierarchicalProgressiveHandler {
             boolean timedOut = Instant.now().isAfter(deadline);
             if (timedOut) {
                 logger.warn("Progressive execution timed out: {} after {}ms", executionId, timeout.toMillis());
-// Java 25: Manual shutdown removed - automatic on scope close
-                // Java 25: shutdown() removed - automatic on scope close
-                // //                 scope.shutdown();
+            }
 
-                for (int i = 0; i < subtasks.size(); i++) {
-                    if (!completed[i]) {
-                        var subtask = subtasks.get(i);
-                        if (subtask.state() == StructuredTaskScope.Subtask.State.SUCCESS) {
-                            try {
-                                results.add(subtask.get());
-                                logger.debug("Collected final result from task {} after timeout", i);
-                            } catch (Exception e) {
-                                logger.debug("Failed to collect final result from task {}: {}", i, e.getMessage());
-                            }
-                        }
+            scope.join();
+
+            for (int i = 0; i < subtasks.size(); i++) {
+                if (!completed[i]) {
+                    var subtask = subtasks.get(i);
+                    if (subtask.state() == StructuredTaskScope.Subtask.State.FAILED) {
+                        errorsByIndex.putIfAbsent(i, new RuntimeException("Task " + i + " failed"));
                     }
+                    completed[i] = true;
+                    totalCompleted++;
                 }
             }
 
             long duration = System.currentTimeMillis() - startTime;
             boolean allCompleted = totalCompleted == subtasks.size();
+            List<T> results = IntStream.range(0, subtasks.size())
+                    .filter(resultsByIndex::containsKey)
+                    .mapToObj(resultsByIndex::get)
+                    .toList();
+            List<Exception> errors = IntStream.range(0, subtasks.size())
+                    .filter(errorsByIndex::containsKey)
+                    .mapToObj(errorsByIndex::get)
+                    .toList();
 
             logger.info("Progressive execution {} completed: {}/{} tasks in {}ms (timedOut={})", 
                        executionId, results.size(), subtasks.size(), duration, timedOut);

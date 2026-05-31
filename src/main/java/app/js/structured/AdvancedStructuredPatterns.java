@@ -333,12 +333,20 @@ public class AdvancedStructuredPatterns {
         long startTime = System.currentTimeMillis();
         List<T> allResults = new ArrayList<>();
         List<Integer> cancelledTasks = new ArrayList<>();
+        boolean[] completed = new boolean[tasks.size()];
+        ConcurrentHashMap<Integer, T> resultsByIndex = new ConcurrentHashMap<>();
         
         try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
             List<StructuredTaskScope.Subtask<T>> subtasks = new ArrayList<>();
 
-            for (Callable<T> task : tasks) {
-                subtasks.add(scope.fork(task));
+            for (int i = 0; i < tasks.size(); i++) {
+                int taskIndex = i;
+                Callable<T> task = tasks.get(i);
+                subtasks.add(scope.fork(() -> {
+                    T result = task.call();
+                    resultsByIndex.put(taskIndex, result);
+                    return result;
+                }));
             }
 
             Instant maxTime = Instant.now().plus(maxDuration);
@@ -360,18 +368,18 @@ public class AdvancedStructuredPatterns {
                     
                     switch (subtask.state()) {
                         case SUCCESS:
-                            try {
-                                newResults.add(subtask.get());
-                                completedIndices.add(i);
-                            } catch (Exception e) {
-                                logger.error("Task {} failed", i, e);
-                                cancelledTasks.add(i);
+                            if (!completed[i]) {
+                                newResults.add(resultsByIndex.get(i));
+                                completed[i] = true;
                                 completedIndices.add(i);
                             }
                             break;
                         case FAILED:
-                            cancelledTasks.add(i);
-                            completedIndices.add(i);
+                            if (!completed[i]) {
+                                cancelledTasks.add(i);
+                                completed[i] = true;
+                                completedIndices.add(i);
+                            }
                             break;
                         case UNAVAILABLE:
                             break;
@@ -385,10 +393,11 @@ public class AdvancedStructuredPatterns {
                     // scope.shutdown();
                     logger.error("Cancellation condition met");
                     for (int i = 0; i < subtasks.size(); i++) {
-                        if (!completedIndices.contains(i)) {
+                        if (!completed[i]) {
                             cancelledTasks.add(i);
                         }
                     }
+                    scope.join();
                     
                     return new CancellationResult<>(
                         allResults, 
@@ -406,6 +415,8 @@ public class AdvancedStructuredPatterns {
                 }
             }
 
+            scope.join();
+
             if (Instant.now().isAfter(maxTime)) {
                 // Java 25: shutdown() removed - automatic on scope close
                 // scope.shutdown();
@@ -416,6 +427,7 @@ public class AdvancedStructuredPatterns {
                         cancelledTasks.add(i);
                     }
                 }
+                scope.join();
                 
                 return new CancellationResult<>(
                     allResults, 
@@ -460,13 +472,20 @@ public class AdvancedStructuredPatterns {
         List<T> results = new ArrayList<>(Collections.nCopies(tasks.size(), null));
         List<Exception> errors = new ArrayList<>();
         boolean[] completed = new boolean[tasks.size()];
+        ConcurrentHashMap<Integer, T> resultsByIndex = new ConcurrentHashMap<>();
         int totalCompleted = 0;
         
         try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
             List<StructuredTaskScope.Subtask<T>> subtasks = new ArrayList<>();
 
-            for (Callable<T> task : tasks) {
-                subtasks.add(scope.fork(task));
+            for (int i = 0; i < tasks.size(); i++) {
+                int taskIndex = i;
+                Callable<T> task = tasks.get(i);
+                subtasks.add(scope.fork(() -> {
+                    T result = task.call();
+                    resultsByIndex.put(taskIndex, result);
+                    return result;
+                }));
             }
 
             Instant maxTime = Instant.now().plus(maxDuration);
@@ -477,7 +496,7 @@ public class AdvancedStructuredPatterns {
                     Thread.sleep(50);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
-                    logger.error("Interrupted while waiting for tasks to complete", e);
+                    throw e;
                 }
 
                 for (int i = 0; i < subtasks.size(); i++) {
@@ -486,19 +505,12 @@ public class AdvancedStructuredPatterns {
                         
                         switch (subtask.state()) {
                             case SUCCESS:
-                                try {
-                                    T result = subtask.get();
-                                    results.set(i, result);
-                                    completed[i] = true;
-                                    totalCompleted++;
+                                T result = resultsByIndex.get(i);
+                                results.set(i, result);
+                                completed[i] = true;
+                                totalCompleted++;
 
-                                    callback.onProgress(i, result);
-                                    
-                                } catch (Exception e) {
-                                    errors.add(new RuntimeException("Task " + i + " failed", e));
-                                    completed[i] = true;
-                                    totalCompleted++;
-                                }
+                                callback.onProgress(i, result);
                                 break;
                                 
                             case FAILED:
@@ -508,7 +520,7 @@ public class AdvancedStructuredPatterns {
                                 break;
                                 
                             case UNAVAILABLE:
-                                logger.error("Task {} is still running", i);
+                                // Still running; check again on the next polling pass.
                                 break;
                         }
                     }
@@ -521,6 +533,8 @@ public class AdvancedStructuredPatterns {
                 // Java 25: shutdown() removed - automatic on scope close
                 // scope.shutdown();
             }
+
+            scope.join();
             
             return new ProgressiveSummary<>(
                 results.stream().filter(Objects::nonNull).collect(toList()),
@@ -531,6 +545,9 @@ public class AdvancedStructuredPatterns {
                 Instant.now().isAfter(maxTime)
             );
             
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw e;
         } catch (Exception e) {
             throw new RuntimeException("Unexpected timeout in progressive results", e);
         }

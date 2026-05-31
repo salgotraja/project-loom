@@ -493,11 +493,19 @@ public class ProgressiveResultsBenchmark {
                                                 ProgressCallback<T> callback)
                 throws InterruptedException {
 
-            try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
+            Map<Integer, T> resultsByIndex = new ConcurrentHashMap<>();
+
+            try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.<T>awaitAll())) {
                 List<StructuredTaskScope.Subtask<T>> subtasks = new ArrayList<>();
 
-                for (Callable<T> task : tasks) {
-                    subtasks.add(scope.fork(task));
+                for (int i = 0; i < tasks.size(); i++) {
+                    final int taskIndex = i;
+                    Callable<T> task = tasks.get(i);
+                    subtasks.add(scope.fork(() -> {
+                        T result = task.call();
+                        resultsByIndex.put(taskIndex, result);
+                        return result;
+                    }));
                 }
 
                 boolean[] completed = new boolean[tasks.size()];
@@ -521,11 +529,7 @@ public class ProgressiveResultsBenchmark {
 
                             completed[i] = true;
                             totalCompleted++;
-                            try {
-                                callback.onProgress(i, subtasks.get(i).get());
-                            } catch (Exception e) {
-
-                            }
+                            callback.onProgress(i, resultsByIndex.get(i));
                         } else if (!completed[i] &&
                                 subtasks.get(i).state() == StructuredTaskScope.Subtask.State.FAILED) {
                             completed[i] = true;
@@ -534,10 +538,16 @@ public class ProgressiveResultsBenchmark {
                     }
                 }
 
-                try {
-                    scope.join();
-                } catch (Exception e) {
+                scope.join();
 
+                for (int i = 0; i < subtasks.size(); i++) {
+                    if (!completed[i]) {
+                        completed[i] = true;
+                        totalCompleted++;
+                        if (subtasks.get(i).state() == StructuredTaskScope.Subtask.State.SUCCESS) {
+                            callback.onProgress(i, resultsByIndex.get(i));
+                        }
+                    }
                 }
                 
             } catch (Exception e) {

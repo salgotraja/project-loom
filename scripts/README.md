@@ -29,7 +29,6 @@ The microservices are configured to run on the following ports to avoid conflict
 - **`test_structured_concurrency.sh`**: Validates basic structured concurrency endpoints on port 8080.
 - **`advanced_structured_concurrency_test.sh`**: Comprehensive test of resilience patterns on port 8082.
 - **`test_clean_structured.sh`**: Tests the clean structured concurrency patterns on port 8085.
-- **`structured_concurrency_test.sh`**: An alternative testing script for port 8080 with load testing capability.
 
 ### Monitoring Scripts
 - **`monitor-jvm.sh`**: A background monitor that periodically polls memory, thread, and JVM metrics from the running services.
@@ -55,3 +54,5 @@ To monitor JVM metrics while services are running:
 ```bash
 ./scripts/monitor-jvm.sh
 ```
+
+For the article update workflow and reproducible benchmark commands, see [`docs/testing-and-benchmarking.md`](../docs/testing-and-benchmarking.md).

@@ -7,12 +7,16 @@ JAVA_OPTS="-Xms1g -Xmx2g \
 -XX:MaxGCPauseMillis=10 \
 -XX:+FlightRecorder \
 -XX:StartFlightRecording=duration=300s,filename=memory-optimized.jfr \
--XX:+UseTransparentHugePages \
 -XX:+UnlockExperimentalVMOptions \
 -Djava.util.concurrent.ForkJoinPool.common.parallelism=8"
 
+if [ "$(uname -s)" = "Linux" ]; then
+    JAVA_OPTS="$JAVA_OPTS -XX:+UseTransparentHugePages"
+fi
+
 if [ -z "$CP" ]; then
-    CP=$(mvn dependency:build-classpath | grep -v '\[INFO\]' | grep -v '\[WARNING\]' | tr '\n' ' '):target/classes
+    mvn -q dependency:build-classpath -Dmdep.outputFile=cp.txt
+    CP="$(cat cp.txt):target/classes"
 fi
 
 echo "Starting Memory-Optimized Microservice with JVM tuning..."

@@ -196,15 +196,23 @@ public class ConcurrentServiceLayer {
     }
     
     public String asyncRaceCondition() throws Exception {
-        logger.info("Starting async race condition handling");
+        return hedgedReadWithDelay();
+    }
+
+    public String hedgedReadWithDelay() throws Exception {
+        logger.info("Starting hedged read with delay");
 
         try (var scope = StructuredTaskScope.open(
                 StructuredTaskScope.Joiner.<String>allUntil(s -> s.state() == Subtask.State.SUCCESS)
         )) {
-            var cacheHit = scope.fork(() -> simulateServiceCall("cache-hit", 50));
-            var dbQuery = scope.fork(() -> simulateServiceCall("db-query", 300));
-            var apiCall = scope.fork(() -> simulateServiceCall("api-call", 200));
-            logger.info("cacheHit: {}, dbQuery: {}, apiCall: {}", cacheHit, dbQuery, apiCall);
+            long hedgeAfterMillis = 30;
+
+            scope.fork(() -> simulateServiceCall("primary", 300));
+            scope.fork(() -> {
+                Thread.sleep(hedgeAfterMillis);
+                return simulateServiceCall("hedge", 150);
+            });
+
             Stream<Subtask<String>> results = scope.join();
 
             String firstResult = results
@@ -214,7 +222,7 @@ public class ConcurrentServiceLayer {
                 .orElseThrow(() -> new Exception("No successful result"));
 
             String result = "Race Winner: " + firstResult;
-            logger.info("Async race condition handled successfully");
+            logger.info("Hedged read handled successfully");
             return result;
         }
     }

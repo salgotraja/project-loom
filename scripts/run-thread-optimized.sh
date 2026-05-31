@@ -10,7 +10,8 @@ JAVA_OPTS="-Xms1g -Xmx2g \
 -Djdk.virtualThreadScheduler.maxPoolSize=256"
 
 if [ -z "$CP" ]; then
-    CP=$(mvn dependency:build-classpath | grep -v '\[INFO\]' | grep -v '\[WARNING\]' | tr '\n' ' '):target/classes
+    mvn -q dependency:build-classpath -Dmdep.outputFile=cp.txt
+    CP="$(cat cp.txt):target/classes"
 fi
 
 echo "Starting Thread-Optimized Microservice with JVM tuning..."
