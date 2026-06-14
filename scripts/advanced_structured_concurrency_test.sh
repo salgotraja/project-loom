@@ -1,15 +1,15 @@
 #!/bin/bash
 
-echo " Advanced Structured Concurrency Testing"
+echo "Advanced Structured Concurrency Testing"
 echo "==========================================="
 
 if ! curl -s http://localhost:8082/health > /dev/null; then
-    echo " Server is not running on port 8082"
+    echo "Server is not running on port 8082"
     echo "Please start: java app.js.microservices.AdvancedStructuredConcurrencyMicroservice"
     exit 1
 fi
 
-echo " Server is running on port 8082"
+echo "Server is running on port 8082"
 echo ""
 
 endpoints=(
@@ -31,13 +31,13 @@ endpoints=(
 
 for endpoint_info in "${endpoints[@]}"; do
     IFS=':' read -r endpoint name <<< "$endpoint_info"
-    
-    echo " Testing $name"
+
+    echo "Testing $name"
     echo "   Endpoint: $endpoint"
-    
+
     response=$(curl -s "http://localhost:8082$endpoint")
     echo "   Response: ${response:0:100}..."
-    
+
     echo "   Performance test (10 requests):"
     time {
         for i in {1..10}; do
@@ -45,13 +45,13 @@ for endpoint_info in "${endpoints[@]}"; do
         done
         wait
     }
-    
-    echo "    $name completed"
+
+    echo "   $name completed"
     echo ""
 done
 
-echo " Final metrics:"
+echo "Final metrics:"
 curl -s http://localhost:8082/metrics
 
 echo ""
-echo " All tests completed!"
+echo "All tests completed!"
